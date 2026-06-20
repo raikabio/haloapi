@@ -1,13 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    /* Target Options */
     "target": "ES2022",
     "lib": ["ES2022"],
     
-    /* Module Strategy */
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    /* Modern, clean import path resolution */
+    "module": "ESNext",
+    "moduleResolution": "Bundler", 
     "esModuleInterop": true,
     "isolatedModules": true,
     
@@ -17,11 +16,10 @@
     "strictNullChecks": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "noUncheckedIndexedAccess": true,
     
     /* Output Handling */
     "outDir": "./dist",
-    "rootDir": "./api", // 👈 FIX: Tells TS to look strictly at your api folder as the root source
+    "rootDir": "./api",
     "removeComments": true
   },
   "include": ["api/**/*"],

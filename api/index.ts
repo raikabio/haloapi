@@ -1,36 +1,30 @@
 // api/index.ts
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { mediaCatalog } from './data.js';
-import { s3Client } from './s3.js';
+import { mediaCatalog } from './data';
+import { s3Client } from './s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const app = express();
 
-// 1. Configure Global CORS Headers explicitly
+// Cleared: Accepting inbound operations from your live production Netlify app
 app.use(cors({
-  origin: '*',
+  origin: ['https://haloapires.netlify.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// 2. Intercept and handle Preflight OPTIONS requests instantly
-app.options('*', (req: Request, res: Response) => {
-  res.sendStatus(200);
-});
-
 app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'Welcome to your Vercel-ready TypeScript Media API!' });
+  res.json({ message: 'Welcome to your live Vercel TypeScript Media API!' });
 });
 
 app.get('/api/media', (req: Request, res: Response) => {
   res.json(mediaCatalog);
 });
 
-// POST Upload URL Handler
 app.post('/api/upload-url', async (req: Request, res: Response) => {
   const { fileName, fileType } = req.body;
 
@@ -40,13 +34,8 @@ app.post('/api/upload-url', async (req: Request, res: Response) => {
   }
 
   try {
-    const bucketName = process.env.R2_BUCKET_NAME || 'halo-media';
+    const bucketName = process.env.VITE_R2_BUCKET || 'movies';
     const uniqueKey = `trailers/${Date.now()}-${fileName}`;
-
-    // Safeguard check: If variables are empty, throw clear error
-    if (!process.env.VITE_R2_ENDPOINT) {
-      throw new Error("Missing VITE_R2_ENDPOINT environment configuration.");
-    }
 
     const command = new PutObjectCommand({
       Bucket: bucketName,
@@ -58,7 +47,7 @@ app.post('/api/upload-url', async (req: Request, res: Response) => {
 
     res.json({
       uploadUrl,
-      publicUrl: `${process.env.R2_PUBLIC_DOMAIN || 'https://pub-domain.com'}/${uniqueKey}`
+      publicUrl: `${process.env.VITE_R2_PUBLIC_URL}/${uniqueKey}`
     });
   } catch (error: any) {
     console.error("Upload URL Generation Crash:", error.message);
@@ -66,6 +55,7 @@ app.post('/api/upload-url', async (req: Request, res: Response) => {
   }
 });
 
+// Serverless Safety Switch: Only call .listen() if NOT executing on cloud runtimes
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`🚀 Local TS dev running on port ${PORT}`));
