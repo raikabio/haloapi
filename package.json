@@ -2,17 +2,20 @@
   "name": "api",
   "version": "1.0.0",
   "type": "module",
-  "main": "api/index.js",
+  "main": "api/index.ts",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
-    "dev": "nodemon api/index.js",
-    "start": "node api/index.js"
+    "dev": "tsx watch api/index.ts",
+    "start": "node dist/api/index.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
   }
 }

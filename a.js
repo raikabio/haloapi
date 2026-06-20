@@ -1,21 +1,8 @@
-// a.js
+
 async function hello() {
-  try {
-    // UPDATED DOMAIN PATH
-    const response = await fetch('https://haloapi-nine.vercel.app/api/user');
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Server Error (${response.status}):`, errorText);
-      return;
-    }
-
+    const response = await fetch('http://localhost:5000/api/user');
     const data = await response.json();
-    console.log("✅ Success! Received Data:", data);
-
-  } catch (error) {
-    console.error("❌ Network or Fetch Error:", error.message);
-  }
+    console.log(data);
 }
 
 hello();
