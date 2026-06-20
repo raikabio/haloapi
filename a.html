@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haloooo Media Storage Dashboard</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #121214;
+      color: #e1e1e6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    h1, h2 { color: #04d361; border-bottom: 1px solid #323238; padding-bottom: 0.5rem; }
+    .card {
+      background: #202024;
+      padding: 1.5rem;
+      border-radius: 8px;
+      margin-bottom: 2rem;
+      border: 1px solid #323238;
+    }
+    input[type="file"] {
+      background: #121214;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px dashed #4e4e54;
+      display: block;
+      margin-bottom: 1rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      background: #04d361;
+      color: #121214;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { background: #4e4e54; cursor: not-allowed; }
+    pre {
+      background: #121214;
+      padding: 1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      border: 1px solid #323238;
+      font-family: monospace;
+    }
+    .status { margin-top: 1rem; font-weight: bold; }
+    .success { color: #04d361; }
+    .error { color: #f75a68; }
+  </style>
+</head>
+<body>
+
+  <h1>🎬 Halo Media Storage Dashboard</h1>
+
+  <div class="card">
+    <h2>1. Upload Movie Trailer / Asset</h2>
+    <input type="file" id="fileInput" accept="video/mp4,image/*">
+    <button id="uploadBtn">Upload to Cloudflare R2</button>
+    <div id="uploadStatus" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Live API Media Catalog</h2>
+    <button id="fetchBtn">Fetch Current Catalog</button>
+    <div id="catalogStatus" class="status"></div>
+    <pre id="catalogOutput">// Click fetch to stream live database records...</pre>
+  </div>
+
+  <script>
+    // CHANGE THIS to your local url (http://localhost:5000) when testing locally!
+    const API_BASE_URL = 'https://haloapi-nine.vercel.app';
+
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const fetchBtn = document.getElementById('fetchBtn');
+    const catalogOutput = document.getElementById('catalogOutput');
+
+    // --- FILE UPLOAD LOGIC ---
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        showStatus(uploadStatus, '❌ Please select a file first!', 'error');
+        return;
+      }
+
+      try {
+        uploadBtn.disabled = true;
+        showStatus(uploadStatus, '⏳ Requesting secure upload URL from backend...', 'info');
+
+        // 1. Get Presigned URL from your Vercel backend
+        const urlResponse = await fetch(`${API_BASE_URL}/api/upload-url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileType: file.type
+          })
+        });
+
+        if (!urlResponse.ok) throw new Error('Failed to fetch upload URL from backend.');
+        
+        const { uploadUrl, publicUrl } = await urlResponse.json();
+
+        showStatus(uploadStatus, '🚀 Uploading file directly to Cloudflare R2...', 'info');
+
+        // 2. Upload file directly to Cloudflare R2
+        const s3Response = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file
+        });
+
+        if (!s3Response.ok) throw new Error('Direct-to-R2 upload rejected.');
+
+        // 3. Complete!
+        showStatus(uploadStatus, `✅ Upload Complete!<br><br><strong>Public Asset Link:</strong><br><a href="${publicUrl}" target="_blank" style="color:#04d361;">${publicUrl}</a>`, 'success');
+
+      } catch (err) {
+        showStatus(uploadStatus, `❌ Error: ${err.message}`, 'error');
+        console.error(err);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    // --- FETCH CATALOG LOGIC ---
+    fetchBtn.addEventListener('click', async () => {
+      try {
+        catalogOutput.textContent = 'Loading...';
+        const res = await fetch(`${API_BASE_URL}/api/media`);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        
+        const data = await res.json();
+        catalogOutput.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        catalogOutput.textContent = `❌ Error pulling database details: ${err.message}`;
+      }
+    });
+
+    // Helper status messenger
+    function showStatus(element, text, type) {
+      element.innerHTML = text;
+      element.className = 'status ' + (type === 'success' ? 'success' : type === 'error' ? 'error' : '');
+    }
+  </script>
+</body>
+</html>
