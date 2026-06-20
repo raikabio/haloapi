@@ -19,12 +19,11 @@ app.get('/api/user', (req, res) => {
   res.json(userProfile);
 });
 
-// FIX: Only call app.listen if we are NOT running on Vercel's platform
+// Safeguard listener from execution on Vercel
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 Local dev running on port ${PORT}`);
   });
 }
 
-// Export the app instance so Vercel can invoke it as a serverless function
 export default app;
