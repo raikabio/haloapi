@@ -2,6 +2,7 @@
   "name": "api",
   "version": "1.0.0",
   "type": "module",
+  "main": "src/server.js",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
     "dev": "nodemon src/server.js",
