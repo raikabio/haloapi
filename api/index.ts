@@ -1,10 +1,25 @@
-// api/index.ts
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-// 1. Hardcoded Configuration Blueprint
+// Core subpath imports for modern modular Firebase Admin
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { getAuth, DecodedIdToken } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+
+// --- FIREBASE INITIALIZATION ---
+if (getApps().length === 0) {
+  initializeApp({
+    projectId: "mapin-433a9",
+    storageBucket: "mapin-433a9.firebasestorage.app"
+  });
+}
+
+const db = getFirestore(); 
+const auth = getAuth();    
+
+// --- CLOUDFLARE R2 CONFIGURATION ---
 const R2_CONFIG = {
   ENDPOINT: "https://73e60f082e66ff50bd1bd466745b36ae.r2.cloudflarestorage.com",
   PUBLIC_URL: "https://pub-e5285fab83ec4d6d8349a0cbd405c786.r2.dev",
@@ -14,7 +29,6 @@ const R2_CONFIG = {
   REGION: "auto"
 };
 
-// 2. Initialize Core AWS S3 Core Client Engine
 const s3Client = new S3Client({
   region: R2_CONFIG.REGION,
   endpoint: R2_CONFIG.ENDPOINT,
@@ -27,35 +41,46 @@ const s3Client = new S3Client({
 
 const app = express();
 
-// 3. Configure Global Cross-Origin Resource Interceptor
+// --- EXTEND REQUEST TYPE FOR AUTHENTICATED USER ---
+interface AuthenticatedRequest extends Request {
+  user?: DecodedIdToken;
+}
+
+// --- UNIVERSAL CORS ACCESS CONTROL (UPDATED ORIGIN) ---
 app.use(cors({
-  origin: ['https://haloapires.netlify.app', 'http://localhost:3000'],
+  origin: 'https://aplixapi.netlify.app',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 app.use(express.json());
 
-// Mock Data Catalog for Application Use
-const mediaCatalog = [
-  { id: "1", title: "In the Hand of Dante", type: "trailer" }
-];
+// --- MIDDLEWARE: VERIFY FIREBASE ID TOKEN ---
+const authenticateFirebaseUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // "Bearer <TOKEN>"
 
-// 4. Endpoint Routing Declarations
-app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'Welcome to your live Vercel Cloudflare R2 Stream Pipeline!' });
-});
+  if (!token) {
+    res.status(401).json({ error: "Access denied. Token missing from Header." });
+    return;
+  }
 
-app.get('/api/media', (req: Request, res: Response) => {
-  res.json(mediaCatalog);
-});
+  try {
+    const decodedToken = await auth.verifyIdToken(token);
+    req.user = decodedToken;
+    next();
+  } catch (error: any) {
+    res.status(403).json({ error: "Authentication failed. Invalid Firebase Token.", details: error.message });
+  }
+};
 
-// Secure Multi-Part Presigned Stream Matrix Handshaker
-app.post('/api/upload-url', async (req: Request, res: Response) => {
-  const { fileName, fileType } = req.body;
+// --- OTT STORAGE ENDPOINT (PROTECTED) ---
+app.post('/api/upload-url', authenticateFirebaseUser, async (req: AuthenticatedRequest, res: Response) => {
+  const { fileName, fileType, title, description } = req.body;
 
-  if (!fileName || !fileType) {
-    res.status(400).json({ error: "Missing required payload tracking configurations (fileName or fileType)." });
+  if (!fileName) {
+    res.status(400).json({ error: "Missing fileName parameter." });
     return;
   }
 
@@ -66,26 +91,52 @@ app.post('/api/upload-url', async (req: Request, res: Response) => {
     const command = new PutObjectCommand({
       Bucket: R2_CONFIG.BUCKET,
       Key: uniqueKey,
-      ContentType: fileType,
+      ContentType: fileType || 'application/octet-stream',
     });
 
-    // Generate secure upload window authorization ticket expiring in 15 minutes
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+    const finalPublicUrl = `${R2_CONFIG.PUBLIC_URL}/${uniqueKey}`;
+
+    // Store video metadata securely inside Firestore
+    if (title) {
+      await db.collection("movies").add({
+        title,
+        description: description || "",
+        videoUrl: finalPublicUrl,
+        uploadedBy: req.user?.email || "anonymous",
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
 
     res.json({
       uploadUrl,
-      publicUrl: `${R2_CONFIG.PUBLIC_URL}/${uniqueKey}`
+      publicUrl: finalPublicUrl,
+      dbLogged: !!title
     });
   } catch (error: any) {
-    console.error("Presigned Signature Failure Event:", error.message);
-    res.status(500).json({ error: "Cloudflare engine verification failed", details: error.message });
+    res.status(500).json({ error: "Cloudflare engine generation failed", details: error.message });
   }
 });
 
-// 5. Serverless Engine Isolation Guard
+// --- FETCH VIDEO CATALOG FROM FIRESTORE (PUBLIC) ---
+app.get('/api/movies', async (req: Request, res: Response) => {
+  try {
+    const snapshot = await db.collection("movies").orderBy("createdAt", "desc").get();
+    const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ movies });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to retrieve records from Database.", details: error.message });
+  }
+});
+
+// --- CORE SYSTEM INDEX ---
+app.get('/', (req: Request, res: Response) => {
+  res.json({ status: "online", system: "Aplix API Core + Firebase Engine" });
+});
+
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`🚀 Dedicated sandbox container running at http://localhost:${PORT}`));
+  app.listen(PORT, () => console.log(`🚀 Dedicated backend active on port ${PORT}`));
 }
 
 export default app;
