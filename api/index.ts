@@ -3,21 +3,40 @@ import cors from 'cors';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-// Core subpath imports for modern modular Firebase Admin
+// Modular Firebase Admin structural subpaths
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth, DecodedIdToken } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
-// --- FIREBASE INITIALIZATION ---
-if (getApps().length === 0) {
-  initializeApp({
-    projectId: "mapin-433a9",
-    storageBucket: "mapin-433a9.firebasestorage.app"
-  });
-}
+const app = express();
 
-const db = getFirestore(); 
-const auth = getAuth();    
+// --- UNIVERSAL CORS ACCESS CONTROL ---
+app.use(cors({
+  origin: 'https://aplixapi.netlify.app',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+app.use(express.json());
+
+// --- FIREBASE ADMIN LAZY INITIALIZATION ---
+// This safe-wrapper layout intercepts unhandled runtime execution crashes on Vercel
+let db: ReturnType<typeof getFirestore>;
+let auth: ReturnType<typeof getAuth>;
+
+try {
+  if (getApps().length === 0) {
+    initializeApp({
+      projectId: "mapin-433a9",
+      storageBucket: "mapin-433a9.firebasestorage.app"
+    });
+  }
+  db = getFirestore();
+  auth = getAuth();
+} catch (fbInitError: any) {
+  console.error("Firebase Admin initialization deferred:", fbInitError.message);
+}
 
 // --- CLOUDFLARE R2 CONFIGURATION ---
 const R2_CONFIG = {
@@ -39,30 +58,23 @@ const s3Client = new S3Client({
   },
 });
 
-const app = express();
-
-// --- EXTEND REQUEST TYPE FOR AUTHENTICATED USER ---
+// Extend express Request interface for custom tracking payload properties
 interface AuthenticatedRequest extends Request {
   user?: DecodedIdToken;
 }
 
-// --- UNIVERSAL CORS ACCESS CONTROL (UPDATED ORIGIN) ---
-app.use(cors({
-  origin: 'https://aplixapi.netlify.app',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
-
-app.use(express.json());
-
 // --- MIDDLEWARE: VERIFY FIREBASE ID TOKEN ---
 const authenticateFirebaseUser = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // "Bearer <TOKEN>"
+  const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
     res.status(401).json({ error: "Access denied. Token missing from Header." });
+    return;
+  }
+
+  if (!auth) {
+    res.status(500).json({ error: "Firebase Authentication service engine is offline." });
     return;
   }
 
@@ -97,8 +109,9 @@ app.post('/api/upload-url', authenticateFirebaseUser, async (req: AuthenticatedR
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
     const finalPublicUrl = `${R2_CONFIG.PUBLIC_URL}/${uniqueKey}`;
 
-    // Store video metadata securely inside Firestore
-    if (title) {
+    // Store video metadata if Firestore engine is available
+    let dbLogged = false;
+    if (title && db) {
       await db.collection("movies").add({
         title,
         description: description || "",
@@ -106,12 +119,13 @@ app.post('/api/upload-url', authenticateFirebaseUser, async (req: AuthenticatedR
         uploadedBy: req.user?.email || "anonymous",
         createdAt: FieldValue.serverTimestamp()
       });
+      dbLogged = true;
     }
 
     res.json({
       uploadUrl,
       publicUrl: finalPublicUrl,
-      dbLogged: !!title
+      dbLogged
     });
   } catch (error: any) {
     res.status(500).json({ error: "Cloudflare engine generation failed", details: error.message });
@@ -120,6 +134,11 @@ app.post('/api/upload-url', authenticateFirebaseUser, async (req: AuthenticatedR
 
 // --- FETCH VIDEO CATALOG FROM FIRESTORE (PUBLIC) ---
 app.get('/api/movies', async (req: Request, res: Response) => {
+  if (!db) {
+    res.status(500).json({ error: "Database integration service engine is offline." });
+    return;
+  }
+
   try {
     const snapshot = await db.collection("movies").orderBy("createdAt", "desc").get();
     const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -131,7 +150,11 @@ app.get('/api/movies', async (req: Request, res: Response) => {
 
 // --- CORE SYSTEM INDEX ---
 app.get('/', (req: Request, res: Response) => {
-  res.json({ status: "online", system: "Aplix API Core + Firebase Engine" });
+  res.json({ 
+    status: "online", 
+    system: "Aplix API Core Engine",
+    firebaseConnected: !!db 
+  });
 });
 
 if (!process.env.VERCEL) {
